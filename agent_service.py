@@ -1,16 +1,15 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from vision_agents.agent import VisionAgent   # ✅ FIXED IMPORT
+from vision_agents.core import agents   # ✅ Correct import from official docs
 import os
 from dotenv import load_dotenv
-import asyncio
 
 load_dotenv()
 
 app = FastAPI()
 
-# Store active agents
-active_agents: dict[str, VisionAgent] = {}
+# Store active agents by call_id
+active_agents: dict[str, object] = {}
 
 
 class StartAgentRequest(BaseModel):
@@ -28,7 +27,7 @@ async def start_agent(request: StartAgentRequest):
         return {"success": True, "message": "Agent already active"}
 
     try:
-        agent = VisionAgent(
+        agent = agents.VisionAgent(
             stream_api_key=os.getenv("STREAM_API_KEY"),
             stream_secret=os.getenv("STREAM_SECRET_KEY"),
             llm={
@@ -43,7 +42,7 @@ async def start_agent(request: StartAgentRequest):
             system_prompt=f"""
 You are a smart AI meeting assistant.
 
-Context:
+Meeting context:
 {request.context}
 
 Instructions:
@@ -51,10 +50,9 @@ Listen to the meeting and only respond when someone says "Hey assistant".
 """.strip()
         )
 
-        # Join the Stream video call
+        # Join the Stream call
         await agent.join_call("default", request.call_id)
 
-        # Save agent
         active_agents[request.call_id] = agent
 
         return {"success": True, "message": "Agent joined call"}
@@ -68,11 +66,12 @@ async def stop_agent(request: StopAgentRequest):
     agent = active_agents.get(request.call_id)
 
     if not agent:
-        return {"success": True, "message": "No active agent"}
+        return {"success": True, "message": "No active agent found"}
 
     try:
         await agent.leave_call()
         del active_agents[request.call_id]
+
         return {"success": True, "message": "Agent left call"}
 
     except Exception as e:
